@@ -4,16 +4,21 @@ import android.annotation.SuppressLint;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.nfc.NdefMessage;
 import android.nfc.NfcAdapter;
 import android.nfc.Tag;
+import android.nfc.tech.MifareClassic;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Parcelable;
 import android.os.PersistableBundle;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import java.io.IOException;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -22,6 +27,8 @@ public class NfcActivity extends AppCompatActivity {
     private TextView tv_data,tv_title;
     private NfcAdapter mNfcAdapter;
     private PendingIntent mPendingIntent;
+    private String metaInfo;
+    private boolean auth;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,6 +79,60 @@ public class NfcActivity extends AppCompatActivity {
         //TODO 获取数据进行下一步处
         tv_data.setText(""+bytesToHex(tag.getId()));
         Log.i("FlashTestNFC--Tag", bytesToHex(tag.getId()));
+
+        //读取MifareClassic标签
+        readMifareClassic(tag);
+    }
+
+    private void readMifareClassic(Tag tag) {
+        MifareClassic mfc = MifareClassic.get(tag);
+        try {
+            mfc.connect();
+            int type = mfc.getType();//获取TAG的类型
+            int sectorCount = mfc.getSectorCount();//获取TAG中包含的扇区数
+            String typeS = "";
+            switch (type) {
+                case MifareClassic.TYPE_CLASSIC:
+                    typeS = "TYPE_CLASSIC";
+                    break;
+                case MifareClassic.TYPE_PLUS:
+                    typeS = "TYPE_PLUS";
+                    break;
+                case MifareClassic.TYPE_PRO:
+                    typeS = "TYPE_PRO";
+                    break;
+                case MifareClassic.TYPE_UNKNOWN:
+                    typeS = "TYPE_UNKNOWN";
+                    break;
+            }
+            metaInfo += "\n卡片类型：" + typeS + "\n共" + sectorCount + "个扇区\n共" + mfc.getBlockCount() + "个块\n存储空间: " + mfc.getSize() + "B\n";
+            for (int j = 0; j < sectorCount; j++) {
+                //Authenticate a sector with key A.
+                auth = mfc.authenticateSectorWithKeyA(j, MifareClassic.KEY_DEFAULT);
+                int bCount;
+                int bIndex;
+                if (auth) {
+                    metaInfo += "Sector " + j + ":验证成功\n";
+                    // 读取扇区中的块
+                    bCount = mfc.getBlockCountInSector(j);
+                    bIndex = mfc.sectorToBlock(j);
+                    for (int i = 0; i < bCount; i++) {
+                        byte[] data = mfc.readBlock(bIndex);
+                        metaInfo += "Block " + bIndex + " : " + bytesToHexString(data) + "\n";
+                        bIndex++;
+                    }
+                } else {
+                    metaInfo += "Sector " + j + ":验证失败\n";
+                }
+            }
+            Log.e("NFC", "MifareClassic数据：" + metaInfo);
+        } catch(Exception e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                mfc.close();
+            } catch (IOException e) {}
+        }
     }
 
     @Override
@@ -132,4 +193,21 @@ public class NfcActivity extends AppCompatActivity {
         }
         return sb.toString();
     }
+
+    public static String bytesToHexString(byte... src) {
+        StringBuilder stringBuilder = new StringBuilder();
+        if (src == null || src.length <= 0) {
+            return null;
+        }
+        for (int i = 0; i < src.length; i++) {
+            int v = src[i] & 0xFF;
+            String hv = Integer.toHexString(v);
+            if (hv.length() < 2) {
+                stringBuilder.append(0);
+            }
+            stringBuilder.append(hv);
+        }
+        return stringBuilder.toString();
+    }
+
 }
